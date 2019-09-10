@@ -14,6 +14,11 @@ MAX_UPLOAD_DATA_SIZE = 1_000_000_000
 #: Maximal upload text files.
 MAX_UPLOAD_TEXT_SIZE = 1_000_000
 
+#: Maximal exon padding.
+MAX_EXON_PADDING = 100
+#: Default exon padding.
+DEFAULT_EXON_PADDING = 10
+
 # Currently configurable settings.
 
 #: The prefix that this app will be served with.  This has to be properly set into Flask and Dash.

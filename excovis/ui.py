@@ -48,7 +48,17 @@ def render_form():
     ]
     return html.Div(
         children=[
-            dbc.Label("Select Gene", html_for="id_input_gene"),
+            dbc.Label("Exon Padding", html_for="id_input_padding"),
+            dcc.Input(
+                id="id_input_padding",
+                value=settings.DEFAULT_EXON_PADDING,
+                min=0,
+                max=settings.MAX_EXON_PADDING,
+                required=True,
+                size="5",
+                type="number",
+            ),
+            dbc.Label("Select Gene", html_for="id_input_gene", className="pt-3"),
             dcc.Dropdown(id="id_input_gene", options=genes_options),
             dbc.Label("Select Sample(s)", html_for="id_input_samples", className="pt-3"),
             dcc.Dropdown(id="id_input_sample", options=samples_options, multi=True),
@@ -63,14 +73,20 @@ def render_main_content():
         children=[
             dbc.Row(
                 [
+                    dbc.Col(children=render_form(), className="col-2"),
                     dbc.Col(
                         # content will be rendered in this element
-                        children=render_form(),
-                        className="col-2",
-                    ),
-                    dbc.Col(
-                        # content will be rendered in this element
-                        children=[html.Div(id="page-content")],
+                        children=[
+                            html.Div(
+                                [
+                                    html.Div(
+                                        "After selecting gene and sample(s), the coverage plot will appear here.",
+                                        className="text-center",
+                                    )
+                                ],
+                                id="page-content",
+                            )
+                        ],
                         className="col-10",
                     ),
                 ]
