@@ -68,8 +68,8 @@ app.layout = build_layout()
 # Register the callbacks with the app.
 #
 # Callbacks for title and main content.
-callbacks.register_page_content(app)
-callbacks.register_page_brand(app)
+# callbacks.register_page_content(app)
+# callbacks.register_page_brand(app)
 
 # # Callbacks for the "cells" tab pane.
 # callbacks.register_select_cell_plot_type(app)

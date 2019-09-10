@@ -6,27 +6,8 @@ import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
 
-from . import settings, store
+from . import settings, store, genes
 from .__init__ import __version__
-
-
-def render_not_found():
-    """Return site content in the case that the dataset could not be found."""
-    return html.Div(
-        children=[
-            html.H3("Dataset Not Found"),
-            html.P("The dataset that you specified could not be found!"),
-        ]
-    )
-
-
-def render_home():
-    """Return site content for the home screen."""
-    with open(os.path.join(os.path.dirname(__file__), "static", "home.md")) as inputf:
-        home_md = inputf.read()
-        if settings.PUBLIC_URL_PREFIX:
-            home_md = home_md.replace("](assets", "](%s/dash/assets" % settings.PUBLIC_URL_PREFIX)
-    return dbc.Row(dbc.Col(html.Div(dcc.Markdown(home_md), className="home-text")))
 
 
 def render_dataset(identifier):
@@ -45,18 +26,9 @@ def render_navbar():
             children=[
                 # Use row and col to control vertical alignment of logo / brand
                 dbc.NavbarBrand(
-                    [html.I(className="fas fa-home mr-1"), settings.HOME_BRAND], id="page-brand"
-                ),
-                dbc.Nav(
-                    dbc.DropdownMenu(
-                        children=render_children_goto(),
-                        nav=True,
-                        in_navbar=True,
-                        label="Go To",
-                        id="page-goto",
-                    ),
-                    navbar=True,
-                ),
+                    [html.I(className="fas fa-chart-area mr-1"), settings.HOME_BRAND],
+                    id="page-brand",
+                )
             ]
         ),
         # className="mb-5",
@@ -66,46 +38,23 @@ def render_navbar():
     )
 
 
-def render_children_goto():
-    """Render the "Go To" menu."""
-    result = [
-        dbc.DropdownMenuItem("Home", href="/dash/home"),
-        dbc.DropdownMenuItem(divider=True),
-        dbc.DropdownMenuItem("Data Sets", header=True),
+def render_form():
+    """Render form for selecting genes and samples."""
+    genes_options = [
+        {"label": symbol, "value": symbol} for symbol in sorted(genes.load_transcripts().keys())
     ]
-    # metas = store.load_all_metadata()
-    # for meta in metas:
-    #     result.append(
-    #         dbc.DropdownMenuItem(
-    #             meta.short_title, id="menu-item-%s" % meta.id, href="/dash/viz/%s" % meta.id
-    #         )
-    #     )
-    # if not metas:
-    #     result.append(
-    #         dbc.DropdownMenuItem(html.Span("no dataset available", className="text-muted"))
-    #     )
-    # if settings.UPLOAD_ENABLED or settings.CONVERSION_ENABLED:
-    #     result.append(dbc.DropdownMenuItem(divider=True))
-    # if settings.UPLOAD_ENABLED:
-    #     result.append(
-    #         dbc.DropdownMenuItem(
-    #             html.Span(
-    #                 children=[html.I(className="fas fa-cloud-upload-alt mr-1"), "Upload Data"]
-    #             ),
-    #             id="menu-item-upload",
-    #             href="/dash/upload",
-    #         )
-    #     )
-    # if settings.CONVERSION_ENABLED:
-    #     result.append(
-    #         dbc.DropdownMenuItem(
-    #             html.Span(children=[html.I(className="fas fa-redo mr-1"), "Convert Data"]),
-    #             id="menu-item-convert",
-    #             href="%s/convert/" % settings.PUBLIC_URL_PREFIX,
-    #             external_link=True,
-    #         )
-    #     )
-    return result
+    samples_options = [
+        {"label": record.sample, "value": record.id} for record in store.load_all_data()
+    ]
+    return html.Div(
+        children=[
+            dbc.Label("Select Gene", html_for="id_input_gene"),
+            dcc.Dropdown(id="id_input_gene", options=genes_options),
+            dbc.Label("Select Sample(s)", html_for="id_input_samples", className="pt-3"),
+            dcc.Dropdown(id="id_input_sample", options=samples_options, multi=True),
+        ],
+        id="menu",
+    )
 
 
 def render_main_content():
@@ -113,10 +62,18 @@ def render_main_content():
     return html.Div(
         children=[
             dbc.Row(
-                dbc.Col(
-                    # content will be rendered in this element
-                    html.Div(id="page-content")
-                )
+                [
+                    dbc.Col(
+                        # content will be rendered in this element
+                        children=render_form(),
+                        className="col-2",
+                    ),
+                    dbc.Col(
+                        # content will be rendered in this element
+                        children=[html.Div(id="page-content")],
+                        className="col-10",
+                    ),
+                ]
             )
         ],
         className="container pt-3",

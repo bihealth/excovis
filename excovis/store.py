@@ -1,7 +1,7 @@
 """Access to all data outside of the session.
 
 This module uses the functions from ``data`` to load the data from the appropriate location
-and memoizes the loaded data in the Flask cacche.  This module is aware of the Flask cache and
+and memoizes the loaded data in the Flask cache.  This module is aware of the Flask cache and
 thus also of the Dash app.
 
 Note well that the behaviour of iRODS is special because of how ticket access is implemented.
@@ -112,15 +112,15 @@ def _load_data_cached(url, identifier):
 
 
 @cache.memoize()
-def load_all_metadata():
+def load_all_data():
     """Load all meta data information from ``settings.DATA_SOURCES``.
 
-    A data source can either be a URL to a file ending on ``.h5ad`` or a directory that contains ``.h5ad`` files.
+    A data source can either be a URL to a file ending on ``.bam`` or a directory that contains ``.bam`` files.
     """
     result = []
 
     if settings.FAKE_DATA:
-        result = [data.fake_data().metadata]
+        result = [data.fake_data()]
 
     for url in settings.DATA_SOURCES:
         if url.path.endswith(".h5ad"):
@@ -143,25 +143,8 @@ def load_all_metadata():
 
 
 @cache.memoize()
-def load_data(identifier):
-    """Load data for the given identifier from data or upload directory."""
-    if identifier == data.FAKE_DATA_ID:
-        return data.fake_data()
-    else:
-        urls = settings.DATA_SOURCES
-        if settings.UPLOAD_DIR:
-            urls += [urllib.parse.urlparse("file://%s" % settings.UPLOAD_DIR)]
-        for url in urls:
-            if fs.path.basename(url.path)[: -len(".h5ad")] == identifier:
-                return data.load_data(url, identifier)
-            else:
-                if does_exist(url, identifier + ".h5ad"):
-                    return _load_data_cached(
-                        url._replace(path=fs.path.join(url.path, identifier + ".h5ad")), identifier
-                    )
-
-
-@cache.memoize()
-def load_metadata(identifier):
-    """Load metadata for the given identifier from data or upload directory."""
-    return load_data(identifier).metadata
+def load_data(id):
+    for data in load_all_data():
+        if data.id == id:
+            return data
+    raise ExcovisException("Unknown dataset %d" % id)

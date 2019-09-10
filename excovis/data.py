@@ -30,6 +30,18 @@ from .exceptions import ExcovisException
 FAKE_DATA_ID = "builtin-fake-data"
 
 
+@attr.s(auto_attribs=True)
+class MetaData:
+    """Class to bundle the metadata from ."""
+
+    #: ID (= file name) of the dataset
+    id: str
+    #: Full path to the file
+    path: str
+    #: Name of the sample in the BAM file
+    sample: str
+
+
 def redacted_urlunparse(url, redact_with="***"):
     """``urlunparse()`` but redact password."""
     netloc = []
@@ -56,6 +68,7 @@ def make_osfs(url):
         raise ValueError("Scheme must be == 'file'")
     return OSFS("/")
 
+
 def make_fs(url):
     """Create PyFilesystem FS for the given url."""
     factories = {"file": make_osfs}
@@ -65,5 +78,6 @@ def make_fs(url):
         return factories[url.scheme](url).opendir(url.path)
 
 
-def fake_data(seed=42):
-    """Create fake ``Data`` to make Dash validation happy."""
+def fake_data():
+    """Create fake ``MetaData`` to make Dash validation happy."""
+    return MetaData(id="fake.bam", path="/path/to/fake.bam", sample="fake")

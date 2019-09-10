@@ -15,7 +15,9 @@ def run_server(args):
     """Actually run the Dash server."""
     from .app import app  # noqa
 
-    app.run_server(host=args.host, port=args.port, debug=args.debug)
+    app.run_server(
+        host=args.host, port=args.port, debug=args.debug, dev_tools_hot_reload=args.debug
+    )
 
 
 def run_temp_dir(args):
