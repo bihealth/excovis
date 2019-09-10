@@ -80,4 +80,4 @@ def make_fs(url):
 
 def fake_data():
     """Create fake ``MetaData`` to make Dash validation happy."""
-    return MetaData(id="fake.bam", path="/path/to/fake.bam", sample="fake")
+    return MetaData(id=FAKE_DATA_ID, path="/path/to/fake.bam", sample="fake")

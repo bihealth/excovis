@@ -5,50 +5,38 @@ any component building itself.  Instead, this is done in the module ``.ui``.
 """
 
 import base64
-import os.path
-import uuid
+from io import BytesIO
 
+# from plotly.tools import mpl_to_plotly
 import dash
 import dash_html_components as html
 from logzero import logger
-from werkzeug.utils import secure_filename
 
-from . import ui, settings, store
+from . import plot
 
 
-# def register_page_content(app):
-#     """Register the display of the page content with the app."""
-#
-#     @app.callback(
-#         dash.dependencies.Output("page-content", "children"),
-#         [dash.dependencies.Input("url", "pathname")],
-#     )
-#     def render_page_content(pathname):
-#         view, kwargs = get_route(pathname)
-#         if view == "home":
-#             return ui.render_home()
-#         elif view == "viz":
-#             return ui.render_dataset(kwargs.get("dataset"))
-#         else:
-#             return ui.render_not_found()
-#
-#
-# def register_page_brand(app):
-#     """Register the display of the page brand with the app."""
-#
-#     @app.callback(
-#         dash.dependencies.Output("page-brand", "children"),
-#         [dash.dependencies.Input("url", "pathname")],
-#     )
-#     def render_page_brand(pathname):
-#         view, kwargs = get_route(pathname)
-#         if view == "home":
-#             return [html.I(className="fas fa-home mr-1"), settings.HOME_BRAND]
-#         elif view == "viz":
-#             metadata = store.load_data(kwargs.get("dataset"))
-#             if metadata:
-#                 return [html.I(className="fas fa-file-alt mr-1"), metadata.sample]
-#             else:
-#                 return [html.I(className="fas fa-file-alt mr-1"), "Not Found"]
-#         else:
-#             return [html.I(className="fas fa-file-alt mr-1"), "Not Found"]
+def fig_to_uri(in_fig, **save_args):
+    out_img = BytesIO()
+    in_fig.savefig(out_img, format="png", **save_args)
+    out_img.seek(0)  # rewind file
+    encoded = base64.b64encode(out_img.read()).decode("ascii").replace("\n", "")
+    return "data:image/png;base64,{}".format(encoded)
+
+
+def register_plot(app):
+    """Register the display of the coverage plot."""
+
+    @app.callback(
+        dash.dependencies.Output("page-plot", "children"),
+        [dash.dependencies.Input("input_%s" % s, "value") for s in ("padding", "gene", "samples")],
+    )
+    def render_plot(padding, gene, samples):
+        logger.info("padding=%s, gene=%s, samples=%s", padding, gene, samples)
+        if not gene or not samples:
+            return html.Div(
+                "After selecting gene and sample(s), the coverage plot will appear here.",
+                className="text-center",
+            )
+        else:
+            mpl_fig = plot.render_plot(padding, gene, samples)
+            return html.Img(id="cov-plot", src=fig_to_uri(mpl_fig))

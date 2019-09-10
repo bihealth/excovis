@@ -6,6 +6,7 @@ import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
 
+from excovis import data
 from . import settings, store, genes
 from .__init__ import __version__
 
@@ -50,7 +51,7 @@ def render_form():
         children=[
             dbc.Label("Exon Padding", html_for="id_input_padding"),
             dcc.Input(
-                id="id_input_padding",
+                id="input_padding",
                 value=settings.DEFAULT_EXON_PADDING,
                 min=0,
                 max=settings.MAX_EXON_PADDING,
@@ -59,9 +60,11 @@ def render_form():
                 type="number",
             ),
             dbc.Label("Select Gene", html_for="id_input_gene", className="pt-3"),
-            dcc.Dropdown(id="id_input_gene", options=genes_options),
+            dcc.Dropdown(id="input_gene", options=genes_options, value="A2M"),
             dbc.Label("Select Sample(s)", html_for="id_input_samples", className="pt-3"),
-            dcc.Dropdown(id="id_input_sample", options=samples_options, multi=True),
+            dcc.Dropdown(
+                id="input_samples", options=samples_options, multi=True, value=[data.FAKE_DATA_ID]
+            ),
         ],
         id="menu",
     )
@@ -76,17 +79,7 @@ def render_main_content():
                     dbc.Col(children=render_form(), className="col-2"),
                     dbc.Col(
                         # content will be rendered in this element
-                        children=[
-                            html.Div(
-                                [
-                                    html.Div(
-                                        "After selecting gene and sample(s), the coverage plot will appear here.",
-                                        className="text-center",
-                                    )
-                                ],
-                                id="page-content",
-                            )
-                        ],
+                        children=[html.Div(id="page-plot")],
                         className="col-10",
                     ),
                 ]
@@ -139,32 +132,6 @@ def render_footer():
             className="container",
         ),
         className="footer",
-    )
-
-
-def render_dataset_page(data):
-    """Render the page main content for dataset visualization."""
-    return dbc.Tabs(
-        children=[
-            # dbc.Tab(
-            #     html.Div(
-            #         dbc.Row(dbc.Col(dcc.Markdown(data.metadata.readme))), className="mx-2 mt-2"
-            #     ),
-            #     label="About",
-            #     tab_id="tab-about",
-            # ),
-            # dbc.Tab(
-            #     html.Div(cells.render(data), className="mx-2 mt-2"),
-            #     label="Cell Annotation",
-            #     tab_id="tab-cells",
-            # ),
-            # dbc.Tab(
-            #     html.Div(genes.render(data), className="mx-2 mt-2"),
-            #     label="Gene Expression",
-            #     tab_id="tab-genes",
-            # ),
-        ],
-        active_tab="tab-cells",
     )
 
 

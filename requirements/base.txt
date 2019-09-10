@@ -12,6 +12,13 @@ plotly
 # Numpy, Pandas and friends.
 numpy
 pandas
+matplotlib
+
+# PySAM
+pysam ==0.15.3
+
+# Interval arithmetics
+intervaltree ==3.0.2
 
 # Caching functionality for Flask.
 flask-caching
