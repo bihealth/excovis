@@ -20,6 +20,9 @@ pysam ==0.15.3
 # Interval arithmetics
 intervaltree ==3.0.2
 
+# Natural sorting.
+natsort ==6.0.0
+
 # Caching functionality for Flask.
 flask-caching
 

@@ -12,12 +12,9 @@ import matplotlib.path as pltpath
 import matplotlib.patches as patches
 
 from excovis.exceptions import ExcovisException
-from . import data, genes, settings
+from . import data, genes, settings, store
 
 from logzero import logger
-from intervaltree import Interval, IntervalTree
-import pysam
-import numpy as np
 
 
 MARGIN_X = 100
@@ -28,8 +25,6 @@ EXON_CDS_HEIGHT = 10
 EXON_ROW_HEIGHT = 20
 TEXT_MARGIN = 1
 
-#: Maximal coverage to show.
-MAX_COV = 50
 #: Minimal coverage for level "warning" (smaller triggers error).
 MIN_WARN = 10
 #: Minimal coverage for level "OK" (smaller triggers warning).
@@ -67,15 +62,11 @@ def build_qualmap(quals):
     return mpl.colors.ListedColormap(lst)
 
 
-def _plot_for_gene(
-    transcripts, gene_symbol, df_covs, sep_vlines=[], projected=False, suptitle=None
-):
+def _plot_for_gene(transcripts, df_covs, sep_vlines=[], projected=False, suptitle=None, ymax=50):
     if transcripts.empty:
         tx_chrom = "1"
-        tx_strand = "+"
     else:
-        tx_chrom = transcripts.chrom.iloc[0]
-        tx_strand = transcripts.strand.iloc[0]
+        tx_chrom = transcripts["chrom"].iloc[0]
 
     # Compute start and end genome position.
     pos_begin = transcripts.begin.min() - PADDING - MARGIN_X
@@ -83,7 +74,7 @@ def _plot_for_gene(
     # Extract coverage information from coverage data frame.
     tx_covs = pos_filtered(df_covs, tx_chrom, pos_begin, pos_end)
     # Get sample names.
-    samples = list(tx_covs.columns[2:])
+    samples = list(tx_covs.columns[3:])
 
     # Initialize figure.
     fig = plt.figure(figsize=(FIGSIZE_H, (len(samples) + 1) * FIGSIZE_V), dpi=75)
@@ -101,7 +92,6 @@ def _plot_for_gene(
     # Create one coverage sub figure for each sample.
     for sample_idx, sample in enumerate(samples):
         ax = fig.add_subplot(len(samples) + 1, 1, sample_idx + 1)
-        logger.info("pos_begin=%d pos_end=%d", pos_begin, pos_end)
         ax.set_xlim(pos_begin, pos_end)
         x = tx_covs.loc[:, sample].apply(val_to_qual).values
         # background image
@@ -110,7 +100,7 @@ def _plot_for_gene(
             cmap=build_qualmap(x),
             aspect="auto",
             origin="lower",
-            extent=[tx_covs.pos.min(), tx_covs.pos.max(), 0, MAX_COV],
+            extent=[tx_covs.pos.min(), tx_covs.pos.max(), 0, ymax],
         )
         # path for masking
         paths = ax.fill_between(
@@ -119,12 +109,11 @@ def _plot_for_gene(
             facecolor="none",
             edgecolor="none",
         )
-        logger.info("%s %s", sample, tx_covs.columns)
         # Make the 'fill' mask and clip the background image with it.
         patch = patches.PathPatch(paths._paths[0], visible=False)
         ax.add_artist(patch)
         im.set_clip_path(patch)
-        ax.set(ylabel="depth of coverage", ylim=(0, MAX_COV))
+        ax.set(ylabel="depth of coverage", ylim=(0, ymax))
         if projected:
             ax.tick_params(axis="x", which="both", bottom=False, top=False, labelbottom=False)
         # Show lines with warning and error threshold.
@@ -211,29 +200,27 @@ def _plot_for_gene(
     return fig
 
 
-def _plot_for_gene_projected(transcripts, gene_symbol, df_covs, exon_padding):
+def _plot_for_gene_projected(transcript, df_covs, exon_padding, ymax):
     # Prepare the projection from chromosome to plotted space (only consider +/- exon_padding bases around the exon).
     positions = set()
-    for transcript in transcripts:
-        for exon in transcript.exons:
-            positions |= set(range(exon.begin - exon_padding, exon.end + exon_padding + 1))
+    for exon in transcript.exons:
+        positions |= set(range(exon.begin - exon_padding, exon.end + exon_padding + 1))
     projection = {g: p for p, g in enumerate(sorted(positions))}
     # Project transcripts.
     proj_transcripts = pd.DataFrame(
         data=[
             {
-                "chrom": transcripts[0].chrom,
-                "strand": transcripts[0].strand,
-                "tx_accession": transcripts[0].tx_accession,
-                "gene_symbol": transcripts[0].gene_symbol,
-                "begin": tx.tx_begin,
-                "end": tx.tx_end,
-                "cds_begin": tx.cds_begin,
-                "cds_end": tx.cds_end,
-                "exon_begins": [exon.begin for exon in tx.exons],
-                "exon_lengths": [exon.length() for exon in tx.exons],
+                "chrom": transcript.chrom,
+                "strand": transcript.strand,
+                "tx_accession": transcript.tx_accession,
+                "gene_symbol": transcript.gene_symbol,
+                "begin": transcript.tx_begin,
+                "end": transcript.tx_end,
+                "cds_begin": transcript.cds_begin,
+                "cds_end": transcript.cds_end,
+                "exon_begins": [exon.begin for exon in transcript.exons],
+                "exon_lengths": [exon.length() for exon in transcript.exons],
             }
-            for tx in transcripts
         ],
         columns=[
             "chrom",
@@ -255,11 +242,11 @@ def _plot_for_gene_projected(transcripts, gene_symbol, df_covs, exon_padding):
     def fn2(xs):
         return [projection.get(x) for x in xs]
 
-    proj_transcripts.begin = proj_transcripts.loc[:, "begin"].apply(fn)
-    proj_transcripts.end = proj_transcripts.loc[:, "end"].apply(fn)
-    proj_transcripts.cds_begin = proj_transcripts.loc[:, "cds_begin"].apply(fn)
-    proj_transcripts.cds_end = proj_transcripts.loc[:, "cds_end"].apply(fn)
-    proj_transcripts.exon_begins = proj_transcripts.loc[:, "exon_begins"].apply(fn2)
+    proj_transcripts["begin"] = proj_transcripts.loc[:, "begin"].apply(fn)
+    proj_transcripts["end"] = proj_transcripts.loc[:, "end"].apply(fn)
+    proj_transcripts["cds_begin"] = proj_transcripts.loc[:, "cds_begin"].apply(fn)
+    proj_transcripts["cds_end"] = proj_transcripts.loc[:, "cds_end"].apply(fn)
+    proj_transcripts["exon_begins"] = proj_transcripts.loc[:, "exon_begins"].apply(fn2)
 
     # Project coverage positions (-1 marks null)
     proj_covs = df_covs.copy()
@@ -275,71 +262,61 @@ def _plot_for_gene_projected(transcripts, gene_symbol, df_covs, exon_padding):
         prev = gpos
 
     # Plot.
-    logger.info("proj_transcripts %s", proj_transcripts.columns)
-    logger.info("proj_covs %s", proj_covs.columns)
     return _plot_for_gene(
         proj_transcripts,
-        gene_symbol,
         proj_covs,
         sep_vlines=jump_positions,
         projected=True,
-        suptitle="Coverage for gene %s with padding %d bp" % (gene_symbol, exon_padding),
+        suptitle="Coverage for transcript %s of gene %s"
+        % (transcript.tx_accession, transcript.gene_symbol),
+        ymax=ymax,
     )
 
 
-def plot_for_gene(transcripts, gene_symbol, df_covs, exon_padding=None):
+def plot_for_gene(transcript, df_covs, exon_padding=None, ymax=50):
+    transcripts = pd.DataFrame(
+        data=[
+            {
+                "chrom": transcript.chrom,
+                "strand": transcript.strand,
+                "tx_accession": transcript.tx_accession,
+                "gene_symbol": transcript.gene_symbol,
+                "begin": transcript.tx_begin,
+                "end": transcript.tx_end,
+                "cds_begin": transcript.cds_begin,
+                "cds_end": transcript.cds_end,
+                "exon_begins": [exon.begin for exon in transcript.exons],
+                "exon_lengths": [exon.length() for exon in transcript.exons],
+            }
+        ],
+        columns=[
+            "chrom",
+            "gene_symbol",
+            "tx_accession",
+            "strand",
+            "begin",
+            "end",
+            "cds_begin",
+            "cds_end",
+            "exon_begins",
+            "exon_lengths",
+        ],
+    )
+
     if exon_padding is None:
         # Select transcripts that we are interested in.
         return _plot_for_gene(
-            transcripts, gene_symbol, df_covs, suptitle="Coverage for gene %s" % gene_symbol
+            transcripts,
+            df_covs,
+            ymax=ymax,
+            suptitle="Coverage for transcript %s of gene %s"
+            % (transcript.tx_accession, transcript.gene_symbol),
         )
     else:
-        return _plot_for_gene_projected(transcripts, gene_symbol, df_covs, exon_padding)
+        return _plot_for_gene_projected(transcript, df_covs, exon_padding, ymax)
 
 
-def load_coverage(sample, chrom, tree):
-    """Load coverage for all positions in ``tree`` from ``chrom``."""
-    if sample == data.FAKE_DATA_ID:
-
-        def padded_range(a, b, padding):
-            return range(a - padding, b + padding)
-
-        def fn(lst):
-            return list(sorted(set(chain(*lst))))
-
-        positions = fn(
-            [padded_range(itv.begin, itv.end, settings.MAX_EXON_PADDING) for itv in tree]
-        )
-        n = len(positions)
-        return pd.DataFrame(
-            data=[
-                {"chrom": chrom, "pos": pos, sample: int(50.0 * i / n)}
-                for i, pos in enumerate(positions)
-            ],
-            columns=["chrom", "pos", sample],
-        )
-    else:
-        raise ExcovisException("Implement me! %s" % sample)
-
-
-def render_plot(exon_padding, gene_symbol, samples):
-    transcripts = genes.load_transcripts().get(gene_symbol, [])[:1]
-    if not transcripts:
-        df_coverage = pd.DataFrame(data=[], columns=["chrom", "pos"] + samples)
-    else:
-        tree = IntervalTree(
-            [
-                Interval(exon.begin, exon.end)
-                for transcript in transcripts
-                for exon in transcript.exons
-            ]
-        )
-        chrom = transcripts[0].chrom
-        total_length = sum([itv.length() for itv in tree])
-        logger.info("chrom = %s, total_length = %d, tree = %s", chrom, total_length, tree)
-        ds = [load_coverage(sample, chrom, tree) for sample in samples]
-        df_coverage = ds[0]
-        for d in ds[1:]:
-            df_coverage = df_coverage.join(d, on=["chrom", "pos"])
-        print(df_coverage)
-    return plot_for_gene(transcripts, gene_symbol, df_coverage, exon_padding)
+def render_plot(exon_padding, ymax, tx_accession, samples):
+    transcript = genes.load_transcripts()[tx_accession]
+    coverage_df = store.load_coverage_df(exon_padding, tx_accession, samples)
+    return plot_for_gene(transcript, coverage_df, exon_padding, ymax)

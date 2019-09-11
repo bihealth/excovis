@@ -5,8 +5,8 @@ import os.path
 import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
+from natsort import natsorted
 
-from excovis import data
 from . import settings, store, genes
 from .__init__ import __version__
 
@@ -42,28 +42,47 @@ def render_navbar():
 def render_form():
     """Render form for selecting genes and samples."""
     genes_options = [
-        {"label": symbol, "value": symbol} for symbol in sorted(genes.load_transcripts().keys())
+        {"label": gene_symbol, "value": gene_symbol}
+        for gene_symbol in natsorted(
+            set((tx.gene_symbol for tx in genes.load_transcripts().values()))
+        )
     ]
     samples_options = [
         {"label": record.sample, "value": record.id} for record in store.load_all_data()
     ]
     return html.Div(
         children=[
-            dbc.Label("Exon Padding", html_for="id_input_padding"),
-            dcc.Input(
+            dbc.Label("Exon Padding", html_for="input_padding"),
+            dcc.Slider(
                 id="input_padding",
                 value=settings.DEFAULT_EXON_PADDING,
                 min=0,
                 max=settings.MAX_EXON_PADDING,
-                required=True,
-                size="5",
-                type="number",
+                marks={i: "%dbp" % i for i in range(0, settings.MAX_EXON_PADDING + 1, 25)},
             ),
-            dbc.Label("Select Gene", html_for="id_input_gene", className="pt-3"),
-            dcc.Dropdown(id="input_gene", options=genes_options, value="A2M"),
-            dbc.Label("Select Sample(s)", html_for="id_input_samples", className="pt-3"),
+            dbc.Label("Max coverage", html_for="input_ymax", className="pt-3 mt-3"),
+            dcc.Slider(
+                id="input_ymax",
+                value=settings.DEFAULT_MAX_COVERAGE,
+                min=0,
+                max=settings.MAX_MAX_COVERAGE,
+                marks={i: "%dx" % i for i in range(0, settings.MAX_MAX_COVERAGE + 1, 50)},
+                className="pb-3",
+            ),
+            html.Hr(),
+            dbc.Label("Select Gene", html_for="input_gene"),
+            dcc.Dropdown(id="input_gene", options=genes_options),
+            dbc.Label("Select Transcript", html_for="input_transcript", className="pt-3"),
+            dcc.Loading(children=[dcc.Dropdown(id="input_transcript")]),
+            html.Hr(),
+            dbc.Label("Select Sample(s)", html_for="input_samples"),
+            dcc.Dropdown(id="input_samples", options=samples_options, multi=True),
+            html.Hr(),
+            dbc.Label("Coverage Aggregation", html_for="input_aggregation"),
             dcc.Dropdown(
-                id="input_samples", options=samples_options, multi=True, value=[data.FAKE_DATA_ID]
+                id="input_aggregation",
+                options=[{"label": agg, "value": agg} for agg in ("min", "max", "median", "mean")],
+                value="mean",
             ),
         ],
         id="menu",
@@ -79,7 +98,10 @@ def render_main_content():
                     dbc.Col(children=render_form(), className="col-2"),
                     dbc.Col(
                         # content will be rendered in this element
-                        children=[html.Div(id="page-plot")],
+                        children=[
+                            dcc.Loading(children=[html.Div(id="page-plot")]),
+                            dcc.Loading(children=[html.Div(id="page-table")]),
+                        ],
                         className="col-10",
                     ),
                 ]

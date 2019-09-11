@@ -4,23 +4,14 @@ When importing this module, the app is built and configured.  Thus, it is import
 this module is imported, the values in ``.settings`` must already have been setup.
 """
 
-import os.path
 import os
-import re
-import tempfile
-import tarfile
-import zipfile
 
 import dash
 import flask
-from flask import flash, request, redirect, helpers
-from logzero import logger
-from werkzeug.utils import secure_filename
 
 
 from . import cache, callbacks, settings
 from .__init__ import __version__
-from .exceptions import ExcovisException
 from .ui import build_layout
 
 #: Path to assets.
@@ -65,6 +56,8 @@ app.layout = build_layout()
 #
 # Callbacks for the coverage plot.
 callbacks.register_plot(app)
+callbacks.register_table(app)
+callbacks.register_transcript_select(app)
 
 # Add redirection for root.
 @app_flask.route("/")

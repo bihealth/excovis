@@ -9,106 +9,16 @@ We have to get direct access to the collection for which we have a ticket.  Then
 perform a linear search for the collection's data objects and only THEN can we open them.
 """
 
-import urllib.parse
-from urllib.parse import urlunparse
+from itertools import chain
 
-import fs.path
-from fs.errors import ResourceInvalid
-import s3fs
-from irods.exception import CAT_SQL_ERR, DoesNotExist
-import htmllistparse
 from logzero import logger
-import requests
+import pandas as pd
+from intervaltree import Interval, IntervalTree
+import pysam
 
-from . import data, settings
-from .data import redacted_urlunparse
+from . import data, genes, settings
 from .exceptions import ExcovisException
 from .cache import cache
-
-
-@cache.memoize()
-def does_exist(url, path, *more_components):
-    """Return whether the given path exists behind the given URL."""
-    logger.info(
-        "Checking whether %s exists in %s",
-        fs.path.join(path, *more_components),
-        redacted_urlunparse(url),
-    )
-    if url.scheme in data.PYFS_SCHEMES:
-        path_full = fs.path.join(url.path, path, *more_components)
-        path_dir = fs.path.dirname(path_full)
-        path_basename = fs.path.basename(path_full)
-        try:
-            curr_fs = data.make_fs(url._replace(path=path_dir))
-        except ResourceInvalid:
-            return False
-        result = curr_fs.exists(path_basename)
-        return result
-    elif url.scheme == "s3":
-        anon = url.username is None and url.password is None
-        s3 = s3fs.S3FileSystem(anon=anon, key=url.username, secret=url.password)
-        return s3.exists("%s/%s" % (url.hostname, path))
-    elif url.scheme.startswith("http"):
-        path_full = fs.path.join(url.path, path, *more_components)
-        url._replace(path=path_full)
-        res = requests.get(urlunparse(url))
-        return res.ok
-    elif url.scheme.startswith("irods"):
-        path_full = fs.path.join(url.path, path, *more_components)
-        with data.create_irods_session(url) as irods_session:
-            path_collection = fs.path.dirname(path_full)
-            name = fs.path.basename(path_full)
-            try:
-                collection = irods_session.collections.get(path_collection)
-                for data_object in collection.data_objects:
-                    if data_object.name == name:
-                        return True
-            except (CAT_SQL_ERR, DoesNotExist):
-                pass  # swallow
-            logger.info("=> False")
-    else:
-        raise ExcovisException("Invalid URL scheme: %s" % url.scheme)
-
-
-@cache.memoize()
-def glob_data_sets(url):
-    """Return list of all data sets behind the given ``url``."""
-    result = []
-    if url.scheme in data.PYFS_SCHEMES:
-        curr_fs = data.make_fs(url)
-        for match in curr_fs.glob("*.h5ad"):
-            match_path = fs.path.basename(match.path)
-            logger.info("Found data set %s at %s" % (match_path, data.redacted_urlunparse(url)))
-            result.append(url._replace(path=fs.path.join(url.path, match.path[1:])))
-    elif url.scheme == "s3":
-        anon = url.username is None and url.password is None
-        s3 = s3fs.S3FileSystem(anon=anon, key=url.username, secret=url.password)
-        if url.path:
-            pattern = "%s/%s/*.h5ad" % (url.hostname, url.path)
-        else:
-            pattern = "%s/*.h5ad" % (url.hostname,)
-        for match in s3.glob(pattern):
-            result.append(url._replace(path=match.split("/", 1)[1]))
-    elif url.scheme.startswith("http"):
-        cwd, listing = htmllistparse.fetch_listing(urlunparse(url), timeout=30)
-        for entry in listing:
-            if entry.name.endswith(".h5ad"):
-                result.append(url._replace(path=fs.path.join(cwd, entry.name)))
-    elif url.scheme.startswith("irods"):
-        with data.create_irods_session(url) as irods_session:
-            # Get pointed-to collection.
-            collection = irods_session.collections.get(url.path)
-            for data_obj in collection.data_objects:
-                if data_obj.name.endswith(".h5ad"):
-                    result.append(url._replace(path=fs.path.join(url.path, data_obj.name)))
-    else:
-        raise ExcovisException("Invalid URL scheme: %s" % url.scheme)
-    return result
-
-
-@cache.memoize()
-def _load_data_cached(url, identifier):
-    return data.load_data(url, identifier)
 
 
 @cache.memoize()
@@ -120,25 +30,17 @@ def load_all_data():
     result = []
 
     if settings.FAKE_DATA:
-        result = [data.fake_data()]
+        result.append(data.fake_data())
 
     for url in settings.DATA_SOURCES:
-        if url.path.endswith(".h5ad"):
-            logger.info("Loading single dataset from data source %s", data.redacted_urlunparse(url))
-            identifier = fs.path.basename(url.path)[: -len(".h5ad")]
-            result.append(_load_data_cached(url, identifier).metadata)
-        else:
-            lst = []
-            for match in glob_data_sets(url):
-                identifier = fs.path.basename(match.path)[: -len(".h5ad")]
-                lst.append(_load_data_cached(match, identifier).metadata)
-            if lst:
-                logger.info("Loaded %d data sets from data directory.", len(lst))
+        if url.scheme in data.PYFS_SCHEMES:
+            if url.path.endswith(".bam"):  # one file
+                result.append(data.load_data(url))
             else:
-                logger.warn(
-                    "No data sets found in data directory %s", data.redacted_urlunparse(url)
-                )
-            result += lst
+                curr_fs = data.make_fs(url)
+                for match in curr_fs.glob("**/*.bam"):
+                    x = url._replace(path=url.path + match.path)
+                    result.append(data.load_data(x))
     return result
 
 
@@ -148,3 +50,82 @@ def load_data(id):
         if data.id == id:
             return data
     raise ExcovisException("Unknown dataset %d" % id)
+
+
+def _load_fake_coverage(sample, chrom, tree):
+    def padded_range(a, b, padding):
+        return range(a - padding, b + padding)
+
+    def fn(lst):
+        return list(sorted(set(chain(*lst))))
+
+    positions = fn([padded_range(itv.begin, itv.end, settings.MAX_EXON_PADDING) for itv in tree])
+    n = len(positions)
+    return pd.DataFrame(
+        data=[
+            {"chrom": chrom, "pos": pos, sample: int(50.0 * i / n)}
+            for i, pos in enumerate(positions)
+        ],
+        columns=["chrom", "pos", sample],
+    )
+
+
+@cache.memoize()
+def load_coverage(sample_id, chrom, tree, transcript):
+    """Load coverage for all positions in ``tree`` from ``chrom``."""
+    if sample_id == data.FAKE_DATA_ID:  # short-circuit for fake data
+        return _load_fake_coverage(sample_id, chrom, tree)
+
+    datasets = load_all_data()
+    for dataset in datasets:
+        if dataset.id == sample_id:
+            break
+    else:
+        logger.info("Could not locate sample %s in %s", sample_id, [ds.id for ds in datasets])
+        raise ExcovisException("Unknown sample %s" % sample_id)
+
+    logger.info("dataset = %s", dataset)
+
+    pad = settings.MAX_EXON_PADDING
+    rows = []
+
+    with pysam.AlignmentFile(dataset.path, "rb") as samfile:
+        for i, itv in enumerate(sorted(tree, key=lambda exon: exon.begin)):
+            if transcript.strand == "+":
+                exon_no = i + 1
+            else:
+                exon_no = len(transcript.exons) - i
+            seen = set()
+            for align_col in samfile.pileup(chrom, itv.begin - pad, itv.end + pad):
+                pos = align_col.reference_pos
+                if pos not in seen and itv.begin - pad <= pos < itv.end + pad:
+                    seen.add(pos)
+                    rows.append(
+                        {
+                            "chrom": chrom,
+                            "pos": pos + 1,
+                            "exon_no": exon_no,
+                            dataset.sample: align_col.get_num_aligned(),
+                        }
+                    )
+            for pos in range(itv.begin - pad, itv.end + pad):
+                if pos not in seen:
+                    rows.append(
+                        {"chrom": chrom, "pos": pos + 1, "exon_no": exon_no, dataset.sample: 0}
+                    )
+    result = pd.DataFrame(data=rows, columns=["chrom", "pos", "exon_no", dataset.sample])
+    result.sort_values("pos", inplace=True)
+    return result
+
+
+@cache.memoize()
+def load_coverage_df(exon_padding, tx_accession, samples):
+    transcript = genes.load_transcripts()[tx_accession]
+    tree = IntervalTree([Interval(exon.begin, exon.end) for exon in transcript.exons])
+    ds = [load_coverage(sample, transcript.chrom, tree, transcript) for sample in samples]
+    df_coverage = pd.concat(
+        [ds[0]["chrom"], ds[0]["pos"], ds[0]["exon_no"]] + [d.iloc[:, 3] for d in ds],
+        axis="columns",
+    )
+    df_coverage.sort_values("pos", inplace=True)
+    return df_coverage

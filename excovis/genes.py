@@ -73,5 +73,5 @@ def load_transcripts(url=NCBI_REF_SEQ_GRCH37):
                 cds_end=int(arr[7]),
                 exons=tuple(Exon(begin=begin, end=end) for begin, end in zip(begins, ends)),
             )
-            result.setdefault(transcript.gene_symbol, []).append(transcript)
+            result[transcript.tx_accession] = transcript
     return result

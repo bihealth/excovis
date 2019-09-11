@@ -7,7 +7,7 @@ way to do it with Dash.
 # Currently constant settings.
 
 #: String to use for the Bootstrap "brand" at home.
-HOME_BRAND = "ExCoVis Home"
+HOME_BRAND = "ExCoVis"
 
 #: Maximal upload data files.
 MAX_UPLOAD_DATA_SIZE = 1_000_000_000
@@ -18,6 +18,14 @@ MAX_UPLOAD_TEXT_SIZE = 1_000_000
 MAX_EXON_PADDING = 100
 #: Default exon padding.
 DEFAULT_EXON_PADDING = 10
+
+#: Maximal max coverage to display.
+MAX_MAX_COVERAGE = 200
+#: Default max coverage.
+DEFAULT_MAX_COVERAGE = 50
+
+#: Regular expression for stripping suffixes.
+SAMPLE_STRIP_RE = r"-N1.*"
 
 # Currently configurable settings.
 

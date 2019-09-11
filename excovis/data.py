@@ -5,23 +5,15 @@ should only be accessed through the ``.store`` module such that they can be cach
 This module is unaware of the Dash app.
 """
 
-import os
-import os.path
-import contextlib
+import hashlib
 from urllib.parse import urlunparse as _urlunparse
-import shutil
-import ssl
-from urllib.parse import parse_qs, urlunparse
+import re
 
 import attr
 import fs.path
 import fs.tools
 from fs.osfs import OSFS
-from fs.tempfs import TempFS
-from logzero import logger
-import numpy as np
-import pandas as pd
-import requests
+import pysam
 
 from . import settings
 from .exceptions import ExcovisException
@@ -80,4 +72,22 @@ def make_fs(url):
 
 def fake_data():
     """Create fake ``MetaData`` to make Dash validation happy."""
-    return MetaData(id=FAKE_DATA_ID, path="/path/to/fake.bam", sample="fake")
+    return MetaData(id=FAKE_DATA_ID, path="file:///path/to/fake.bam", sample="fake")
+
+
+def strip_sample(sample):
+    """Postprocess sample name"""
+    return re.sub(settings.SAMPLE_STRIP_RE, "", sample)
+
+
+def load_data(url_bam):
+    """Load ``MetaData`` from the given ``url_bam``."""
+    if url_bam.scheme != "file":
+        raise ExcovisException("Can only load file resources at the moment")
+    with pysam.AlignmentFile(url_bam.path, "rb") as samfile:
+        read_groups = samfile.header.as_dict().get("RG", [])
+        if len(read_groups) != 1:
+            raise ExcovisException("Must have one read group per BAM file!")
+        sample = read_groups[0].get("SM", fs.path.basename(url_bam.path[: -len(".bam")]))
+        hash = hashlib.sha256(url_bam.path.encode("utf-8")).hexdigest()
+        return MetaData(id=hash, path=url_bam.path, sample=strip_sample(sample))
